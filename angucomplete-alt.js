@@ -101,13 +101,17 @@
         autoMatch: '@',
         focusOut: '&',
         focusIn: '&',
-        inputName: '@'
+        inputName: '@',
+        searchStr: '@',
+        hideOnEmpty: '@',
+        highlightExactMatch: '@'
       },
       templateUrl: function(element, attrs) {
         return attrs.templateUrl || TEMPLATE_URL;
       },
       link: function(scope, elem, attrs, ctrl) {
         var inputField = elem.find('input');
+        var inputExists = inputField.length > 0;
         var minlength = MIN_LENGTH;
         var searchTimer = null;
         var hideTimer;
@@ -119,8 +123,11 @@
         var isScrollOn = false;
         var mousedownOn = null;
         var unbindInitialValue;
+        var unbindKeydown;
+        var unbindKeyup;
+        var unbindMousedown;
 
-        elem.on('mousedown', function(event) {
+        unbindMousedown = elem.on('mousedown', function(event) {
           if (event.target.id) {
             mousedownOn = event.target.id;
             if (mousedownOn === scope.id + '_dropdown') {
@@ -276,9 +283,11 @@
           }
           else if (which === KEY_ES) {
             clearResults();
-            scope.$apply(function() {
-              inputField.val(scope.searchStr);
-            });
+            if(inputExists) {
+              scope.$apply(function () {
+                inputField.val(scope.searchStr);
+              });
+            }
           }
           else {
             if (minlength === 0 && !scope.searchStr) {
@@ -287,18 +296,6 @@
 
             if (!scope.searchStr || scope.searchStr === '') {
               scope.showDropdown = false;
-            } else if (scope.searchStr.length >= minlength) {
-              initResults();
-
-              if (searchTimer) {
-                $timeout.cancel(searchTimer);
-              }
-
-              scope.searching = true;
-
-              searchTimer = $timeout(function() {
-                searchTimerComplete(scope.searchStr);
-              }, scope.pause);
             }
 
             if (validState && validState !== scope.searchStr && !scope.clearSelected) {
@@ -373,7 +370,9 @@
             if ((scope.currentIndex + 1) < scope.results.length && scope.showDropdown) {
               scope.$apply(function() {
                 scope.currentIndex ++;
-                updateInputField();
+                if(inputExists) {
+                  updateInputField();
+                }
               });
 
               if (isScrollOn) {
@@ -388,7 +387,9 @@
             if (scope.currentIndex >= 1) {
               scope.$apply(function() {
                 scope.currentIndex --;
-                updateInputField();
+                if(inputExists) {
+                  updateInputField();
+                }
               });
 
               if (isScrollOn) {
@@ -401,7 +402,9 @@
             else if (scope.currentIndex === 0) {
               scope.$apply(function() {
                 scope.currentIndex = -1;
-                inputField.val(scope.searchStr);
+                if(inputExists) {
+                  inputField.val(scope.searchStr);
+                }
               });
             }
           } else if (which === KEY_TAB) {
@@ -509,7 +512,7 @@
         }
 
         function initResults() {
-          scope.showDropdown = true;
+          scope.showDropdown = !scope.hideOnEmpty;
           scope.currentIndex = -1;
           scope.results = [];
         }
@@ -537,13 +540,15 @@
         }
 
         function checkExactMatch(result, obj, str){
-          if (!str) { return; }
-          for(var key in obj){
-            if(obj[key].toLowerCase() === str.toLowerCase()){
-              scope.selectResult(result);
-              return;
+          var matched = false;
+          if (str) {
+            for (var key in obj) {
+              if (obj[key].toLowerCase() === str.toLowerCase()) {
+                matched = true;
+              }
             }
           }
+          return matched;
         }
 
         function searchTimerComplete(str) {
@@ -596,11 +601,24 @@
                 originalObject: responseData[i]
               };
 
-              if (scope.autoMatch) {
-                checkExactMatch(scope.results[scope.results.length-1],
+              if (scope.autoMatch || scope.highlightExactMatch) {
+                var currentIndex = scope.results.length-1;
+                var result = scope.results[currentIndex];
+                var exactMatch = checkExactMatch(result,
                     {title: text, desc: description || ''}, scope.searchStr);
+
+                if(exactMatch) {
+                  if (scope.autoMatch) {
+                    scope.selectResult(result);
+                  }
+                  else {
+                    scope.currentIndex = currentIndex;
+                  }
+                }
               }
             }
+
+            scope.showDropdown = true;
 
           } else {
             scope.results = [];
@@ -693,6 +711,20 @@
             scope.searching = false;
             showAll();
           }
+          else{
+
+            initResults();
+
+            if (searchTimer) {
+              $timeout.cancel(searchTimer);
+            }
+
+            scope.searching = true;
+
+            searchTimer = $timeout(function() {
+              searchTimerComplete(scope.searchStr);
+            }, scope.pause);
+          }
 
           if (scope.inputChanged) {
             str = scope.inputChanged(str);
@@ -745,9 +777,15 @@
         // set max length (default to maxlength deault from html
         scope.maxlength = attrs.maxlength ? attrs.maxlength : MAX_LENGTH;
 
-        // register events
-        inputField.on('keydown', keydownHandler);
-        inputField.on('keyup', keyupHandler);
+        // register events on input field if exists.
+        if(inputExists) {
+          unbindKeydown = inputField.on('keydown', keydownHandler);
+          unbindKeyup = inputField.on('keyup', keyupHandler);
+        }
+        else{
+          scope.keydownHandler = keydownHandler;
+          scope.keyupHandler = keyupHandler;
+        }
 
         // set response formatter
         responseFormatter = callFunctionOrIdentity('remoteUrlResponseFormatter');
@@ -755,6 +793,11 @@
         scope.$on('$destroy', function() {
           // take care of required validity when it gets destroyed
           handleRequired(true);
+          if(inputExists) {
+            inputField.off(unbindKeydown);
+            inputField.off(unbindKeyup);
+            inputField.off(unbindMousedown);
+          }
         });
 
         // set isScrollOn
