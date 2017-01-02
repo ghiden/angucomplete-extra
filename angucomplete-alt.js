@@ -839,5 +839,6 @@
       }
     };
   }]);
-
+  
+  return "angucomplete-alt";
 }));
